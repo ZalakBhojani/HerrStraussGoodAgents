@@ -21,13 +21,19 @@ async def main() -> None:
     )
     server = uvicorn.Server(config)
 
-    # Run FastAPI and Temporal worker concurrently in the same event loop.
-    # The asyncio activity executor is used by default in the worker,
-    # which allows queue sharing between FastAPI WebSocket handlers and activities.
-    await asyncio.gather(
-        server.serve(),
-        run_worker(),
-    )
+    # Start the Temporal worker as a background task
+    worker_task = asyncio.create_task(run_worker())
+
+    try:
+        # uvicorn.serve() handles SIGINT/SIGTERM itself and exits cleanly
+        await server.serve()
+    finally:
+        # Once uvicorn exits (graceful or forced), cancel the worker immediately
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
 
 
 if __name__ == "__main__":
