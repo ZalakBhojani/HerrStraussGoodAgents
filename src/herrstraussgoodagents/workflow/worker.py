@@ -1,0 +1,30 @@
+from __future__ import annotations
+
+import asyncio
+
+from temporalio.client import Client
+from temporalio.worker import Worker
+
+from herrstraussgoodagents.config import get_settings
+from herrstraussgoodagents.workflow.activities import (
+    run_assessment,
+    run_final_notice,
+    run_resolution,
+)
+from herrstraussgoodagents.workflow.collections_workflow import CollectionsWorkflow
+
+
+async def run_worker() -> None:
+    settings = get_settings()
+    client = await Client.connect(
+        settings.temporal_host,
+        namespace=settings.temporal_namespace,
+    )
+    # Use asyncio activity executor (not thread pool) — required for queue sharing with FastAPI
+    worker = Worker(
+        client,
+        task_queue=settings.temporal_task_queue,
+        workflows=[CollectionsWorkflow],
+        activities=[run_assessment, run_resolution, run_final_notice],
+    )
+    await worker.run()

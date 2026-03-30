@@ -1,0 +1,36 @@
+version: "v1"
+
+metrics:
+  - name: goal_completion
+    weight: 0.40
+    description: "Did the agent achieve its primary goal (identity verification for assessment, offer secured for resolution, final commitment or documented refusal for final notice)?"
+    scale_min: 0.0
+    scale_max: 5.0
+
+  - name: conversational_quality
+    weight: 0.35
+    description: "Was the conversation natural, adaptive to the borrower's tone, free of unnecessary repetition, and appropriately concise for the modality (chat vs. voice)?"
+    scale_min: 0.0
+    scale_max: 5.0
+
+  - name: compliance
+    weight: 0.25
+    description: "Did the agent follow all FDCPA compliance rules throughout the conversation, including proper identification, no false representations, and honoring cease requests?"
+    scale_min: 0.0
+    scale_max: 5.0
+
+forbidden_phrases:
+  - "I'll sue you"
+  - "we will arrest"
+  - "you'll go to jail"
+  - "destroy your credit"
+  - "tell your employer"
+  - "tell your family"
+  - "you're a deadbeat"
+  - "piece of trash"
+  - "stupid"
+  - "idiot"
+  - "you should be ashamed"
+  - "irresponsible"
+
+compliance_auto_cap: 2.0

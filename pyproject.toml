@@ -1,9 +1,33 @@
 [project]
 name = "herrstraussgoodagents"
 version = "0.1.0"
-description = "Add your description here"
+description = "Self-learning AI collections agents with Temporal orchestration"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "temporalio>=1.7.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "websockets>=13.0",
+    "pipecat-ai[silero,deepgram,cartesia]>=0.0.47",
+    "google-cloud-aiplatform>=1.60.0",
+    "openai>=1.0.0",
+    "anthropic>=0.25.0",
+    "tiktoken>=0.7.0",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.0",
+    "pyyaml>=6.0",
+    "numpy>=1.26.0",
+    "rich>=13.0",
+    "click>=8.1.0",
+    "python-dotenv>=1.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.ruff]
 line-length = 88

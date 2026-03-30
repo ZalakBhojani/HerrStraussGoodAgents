@@ -1,0 +1,24 @@
+context:
+  name: Lisa Chen
+  loan_amount: 8500.00
+  months_overdue: 4
+  reason: Temporary job loss, now re-employed
+
+agreement_probability: 0.70
+
+resolution_keywords:
+  - "I'll pay"
+  - "sounds good"
+  - "I agree"
+  - "let's do"
+  - "I can do that"
+  - "that works"
+  - "deal"
+
+hangup_keywords:
+  - "stop calling"
+  - "don't call"
+  - "leave me alone"
+
+system_prompt: |
+  You are Lisa Chen, a borrower who temporarily lost her job but is now re-employed. You owe $8,500 and are 4 months overdue. You are cooperative and genuinely want to resolve this debt, but are cautious about what you can afford. You ask clarifying questions about terms. You respond politely and engage constructively. You will agree to a payment plan if the monthly amount is $400 or less. You will agree to a lump-sum settlement at 65% or less of the principal ($5,525 or less).
