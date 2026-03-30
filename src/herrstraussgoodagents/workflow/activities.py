@@ -10,17 +10,23 @@ from herrstraussgoodagents.models import (
     ResolutionPath,
 )
 
+# ResolutionPath imported for stub activities below; remove when stubs are replaced
+
 
 @activity.defn
 async def run_assessment(case: BorrowerCase) -> AgentOutcome:
-    """[STUB] Assessment agent — identifies borrower, gathers info, routes to resolution."""
-    activity.logger.info(f"[STUB] Assessment for case {case.case_id} ({case.borrower_name})")
-    return AgentOutcome(
-        stage=AgentStage.ASSESSMENT,
-        status=OutcomeStatus.ESCALATED,
-        resolution_path=ResolutionPath.PAYMENT_PLAN,
-        turns_taken=4,
-    )
+    """Assessment agent — multi-turn chat via WebSocket bridge."""
+    from herrstraussgoodagents.agents.assessment import AssessmentAgent
+    from herrstraussgoodagents.api.bridge import bridge
+    from herrstraussgoodagents.config import load_agent_config
+
+    activity.logger.info(f"Assessment started for case {case.case_id} ({case.borrower_name})")
+    inbound, outbound = bridge.get_or_create(case.borrower_id)
+    config = load_agent_config("assessment")
+    agent = AssessmentAgent(config, case)
+    outcome = await agent.run(inbound, outbound)
+    activity.logger.info(f"Assessment complete: {outcome.status}, path={outcome.resolution_path}")
+    return outcome
 
 
 @activity.defn

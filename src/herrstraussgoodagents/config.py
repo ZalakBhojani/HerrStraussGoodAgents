@@ -15,7 +15,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class LLMConfig(BaseModel):
     provider: Literal["vertexai", "openai", "anthropic"] = "vertexai"
-    model: str = "gemini-2.0-flash-001"
+    model: str = "gemini-2.5-flash"
     temperature: float = 0.7
     max_tokens: int = 1024
 
