@@ -45,7 +45,7 @@ class AssessmentAgent(BaseAgent):
 
         # Send opening message immediately
         opening = self.config.prompt.opening_script.format(
-            borrower_name=self.case.borrower_name
+            borrower_first_name=self.case.borrower_name
         )
         self.add_assistant_message(opening)
         await outbound.put(opening)
@@ -141,7 +141,7 @@ class AssessmentAgent(BaseAgent):
             source_stage=AgentStage.ASSESSMENT,
         )
 
-        await outbound.put("__DONE__")
+        await outbound.put("__AGENT_DONE__")
         return AgentOutcome(
             stage=AgentStage.ASSESSMENT,
             status=OutcomeStatus.ESCALATED,

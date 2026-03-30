@@ -90,6 +90,11 @@ class Settings(BaseSettings):
     main_context_tokens: int = 2000
     handoff_context_tokens: int = 500
 
+    # Voice services
+    deepgram_api_key: str = ""
+    cartesia_api_key: str = ""
+    cartesia_voice_id: str = "a0e99841-438c-4a64-b679-ae501e7d6091"
+
     # App
     app_host: str = "0.0.0.0"
     app_port: int = 8000

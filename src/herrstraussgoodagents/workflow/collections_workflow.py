@@ -14,7 +14,7 @@ with workflow.unsafe.imports_passed_through():
     from herrstraussgoodagents.workflow.activities import (
         run_assessment,
         run_final_notice,
-        run_resolution,
+        run_resolution_for_case,
     )
 
 
@@ -41,8 +41,8 @@ class CollectionsWorkflow:
 
         # Stage 2: Resolution (voice) — no retries on voice calls
         resolution_outcome: AgentOutcome = await workflow.execute_activity(
-            run_resolution,
-            assessment_outcome,
+            run_resolution_for_case,
+            args=[case, assessment_outcome],
             start_to_close_timeout=timedelta(minutes=30),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
@@ -56,7 +56,7 @@ class CollectionsWorkflow:
         # Stage 3: Final Notice (chat)
         final_outcome: AgentOutcome = await workflow.execute_activity(
             run_final_notice,
-            resolution_outcome,
+            args=[case, resolution_outcome],
             start_to_close_timeout=timedelta(minutes=30),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )

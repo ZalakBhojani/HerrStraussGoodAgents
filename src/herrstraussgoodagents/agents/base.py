@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from herrstraussgoodagents.compliance.rules import ComplianceResult, check_all
+from herrstraussgoodagents.compliance.rules import ComplianceResult, check_all_with_context
 from herrstraussgoodagents.config import AgentConfig
 from herrstraussgoodagents.llm import LLMClient, Message
 
@@ -54,6 +54,12 @@ class BaseAgent:
         """Call LLM and compliance-check the response.
         Regenerates up to 3 times on violation; returns a safe fallback if all fail.
         Token budget is enforced only at handoff, not on every call."""
+        # Find last borrower message for context-sensitive checks (rules 6 + 7)
+        prior_borrower = ""
+        for m in reversed(self._messages):
+            if m["role"] == "user":
+                prior_borrower = m["content"]
+                break
 
         for attempt in range(_MAX_REGENERATE_ATTEMPTS):
             response = await self.client.complete(
@@ -62,7 +68,7 @@ class BaseAgent:
                 temperature=self.config.llm.temperature,
                 max_tokens=self.config.llm.max_tokens,
             )
-            result: ComplianceResult = check_all(response)
+            result: ComplianceResult = check_all_with_context(response, prior_borrower)
             if result.passed:
                 return response
 

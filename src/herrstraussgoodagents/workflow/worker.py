@@ -9,7 +9,7 @@ from herrstraussgoodagents.config import get_settings
 from herrstraussgoodagents.workflow.activities import (
     run_assessment,
     run_final_notice,
-    run_resolution,
+    run_resolution_for_case,
 )
 from herrstraussgoodagents.workflow.collections_workflow import CollectionsWorkflow
 
@@ -25,6 +25,6 @@ async def run_worker() -> None:
         client,
         task_queue=settings.temporal_task_queue,
         workflows=[CollectionsWorkflow],
-        activities=[run_assessment, run_resolution, run_final_notice],
+        activities=[run_assessment, run_resolution_for_case, run_final_notice],
     )
     await worker.run()
