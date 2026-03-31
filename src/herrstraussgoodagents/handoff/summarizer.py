@@ -16,7 +16,6 @@ Given a conversation transcript between a collections agent and a borrower, \
 produce a JSON summary with these exact fields:
 
 {
-  "identity_verified": <bool>,
   "debt_amount": <float>,
   "months_overdue": <int>,
   "offers_made": [<str>, ...],
@@ -29,12 +28,6 @@ Rules:
 - Be accurate about facts stated in the transcript.
 - tone_summary must be under 100 tokens and qualitative only.
 - Return ONLY valid JSON, no commentary.
-"""
-
-_TRUNCATE_SYSTEM = """\
-You are a handoff summarizer. The previous summary was too long. \
-Shorten the tone_summary field to under 60 tokens while keeping all other fields identical. \
-Return ONLY valid JSON.
 """
 
 

@@ -59,5 +59,7 @@ class VertexAIClient(LLMClient):
             model_name=model,
             system_instruction=system_instruction,
         )
+        if not contents:
+            contents = [Content(role="user", parts=[Part.from_text(" ")])]
         response = gemini.count_tokens(contents)
         return response.total_tokens

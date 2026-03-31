@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 from herrstraussgoodagents.agents.base import BaseAgent
-from herrstraussgoodagents.config import AgentConfig, get_llm_client
+from herrstraussgoodagents.config import AgentConfig, get_llm_client, get_settings
+from herrstraussgoodagents.handoff.summarizer import HandoffSummarizer
 from herrstraussgoodagents.models import (
     AgentOutcome,
     AgentStage,
     BorrowerCase,
-    HandoffContext,
     OutcomeStatus,
     ResolutionPath,
 )
+
+logger = logging.getLogger(__name__)
 
 MAX_TURNS = 20
 _BORROWER_TIMEOUT_SECONDS = 300  # 5 min idle timeout
@@ -60,11 +63,22 @@ class AssessmentAgent(BaseAgent):
         inbound: asyncio.Queue[str],
         outbound: asyncio.Queue[str],
     ) -> AgentOutcome:
+        settings = get_settings()
         system_prompt = self.build_system_prompt()
         self.init_messages(system_prompt)
 
         facts_prompt = self.build_facts_prompt(self.case)
-        self.init_messages(facts_prompt)
+        self.add_system_message(facts_prompt)
+
+        init_tokens = await self.client.count_tokens(self._messages, self.config.llm.model)
+        if init_tokens > settings.main_context_tokens:
+            logger.warning(
+                "Assessment initial context is %d tokens (budget: %d)",
+                init_tokens,
+                settings.main_context_tokens,
+            )
+        else:
+            logger.info("Assessment initial context: %d / %d tokens", init_tokens, settings.main_context_tokens)
 
         # Send opening message immediately
         opening = self.config.prompt.opening_script.format(
@@ -72,7 +86,6 @@ class AssessmentAgent(BaseAgent):
         )
         self.add_assistant_message(opening)
         await outbound.put(opening)
-        # todo: check what is the size of the first messages here
 
         turns = 0
         while turns < MAX_TURNS:
@@ -150,20 +163,20 @@ class AssessmentAgent(BaseAgent):
             if self._identity_verified and turns >= 4:
                 break
 
-        # Default resolution path if none detected
-        if self._resolution_path is None:
-            self._resolution_path = ResolutionPath.PAYMENT_PLAN
-
-        handoff = HandoffContext(
-            identity_verified=self._identity_verified,
+        summarizer = HandoffSummarizer.from_config(self.config.llm)
+        handoff = await summarizer.summarize(
+            messages=self._messages,
+            source_stage=AgentStage.ASSESSMENT,
             debt_amount=self.case.debt_amount,
             months_overdue=self.case.months_overdue,
-            offers_made=[],
-            objections_raised=self._objections,
-            resolution_path=self._resolution_path,
-            tone_summary=" ".join(self._tone_notes) if self._tone_notes else "Borrower was cooperative.",
-            source_stage=AgentStage.ASSESSMENT,
         )
+
+        # Preserve keyword-detected resolution path if LLM returned unresolved
+        if handoff.resolution_path is None or handoff.resolution_path == ResolutionPath.UNRESOLVED:
+            if self._resolution_path is not None:
+                handoff = handoff.model_copy(update={"resolution_path": self._resolution_path})
+            else:
+                handoff = handoff.model_copy(update={"resolution_path": ResolutionPath.PAYMENT_PLAN})
 
         await outbound.put("__AGENT_DONE__")
         return AgentOutcome(

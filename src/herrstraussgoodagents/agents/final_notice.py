@@ -4,7 +4,7 @@ import asyncio
 import logging
 
 from herrstraussgoodagents.agents.base import BaseAgent
-from herrstraussgoodagents.config import AgentConfig, get_llm_client
+from herrstraussgoodagents.config import AgentConfig, get_llm_client, get_settings
 from herrstraussgoodagents.handoff.context import handoff_to_text
 from herrstraussgoodagents.models import (
     AgentOutcome,
@@ -88,7 +88,27 @@ class FinalNoticeAgent(BaseAgent):
         inbound: asyncio.Queue[str],
         outbound: asyncio.Queue[str],
     ) -> AgentOutcome:
+        settings = get_settings()
         system_prompt = self.build_system_prompt()
+        sp_tokens = await self.client.count_tokens(
+            [{"role": "system", "content": system_prompt}], self.config.llm.model
+        )
+        base_budget = settings.main_context_tokens - settings.handoff_context_tokens  # 1500
+        if sp_tokens > settings.main_context_tokens:
+            logger.warning(
+                "FinalNotice system prompt is %d tokens (total budget: %d)",
+                sp_tokens,
+                settings.main_context_tokens,
+            )
+        elif sp_tokens > base_budget:
+            logger.info(
+                "FinalNotice system prompt: %d tokens (using %d of 500-token handoff allocation)",
+                sp_tokens,
+                sp_tokens - base_budget,
+            )
+        else:
+            logger.info("FinalNotice system prompt: %d / %d tokens", sp_tokens, settings.main_context_tokens)
+
         self.init_messages(system_prompt)
 
         opening = self.config.prompt.opening_script.format(

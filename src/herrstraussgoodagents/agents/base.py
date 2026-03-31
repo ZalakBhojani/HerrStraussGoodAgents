@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+
 from herrstraussgoodagents.compliance.rules import ComplianceResult, check_all_with_context
-from herrstraussgoodagents.config import AgentConfig
+from herrstraussgoodagents.config import AgentConfig, get_settings
 from herrstraussgoodagents.llm import LLMClient, Message
+
+logger = logging.getLogger(__name__)
 
 _MAX_REGENERATE_ATTEMPTS = 3
 _COMPLIANCE_FALLBACK = (
@@ -40,11 +44,35 @@ class BaseAgent:
     def init_messages(self, system_prompt: str) -> None:
         self._messages = [{"role": "system", "content": system_prompt}]
 
+    def add_system_message(self, system_prompt: str) -> None:
+        self._messages = [{"role": "system", "content": system_prompt}]
+
     def add_user_message(self, content: str) -> None:
         self._messages.append({"role": "user", "content": content})
 
     def add_assistant_message(self, content: str) -> None:
         self._messages.append({"role": "assistant", "content": content})
+
+    # ------------------------------------------------------------------
+    # History compaction
+    # ------------------------------------------------------------------
+
+    async def _maybe_compact_history(self) -> None:
+        """Slide the message window when total tokens exceed the main context budget."""
+        settings = get_settings()
+        budget = settings.main_context_tokens
+        total = await self.client.count_tokens(self._messages, self.config.llm.model)
+        if total <= budget:
+            return
+        system_msg = self._messages[0]
+        tail = self._messages[-4:] if len(self._messages) > 5 else self._messages[1:]
+        self._messages = [system_msg] + tail
+        logger.warning(
+            "History compacted: was ~%d tokens (budget %d), retained last %d messages",
+            total,
+            budget,
+            len(self._messages),
+        )
 
     # ------------------------------------------------------------------
     # LLM call with compliance pre-check
@@ -54,6 +82,8 @@ class BaseAgent:
         """Call LLM and compliance-check the response.
         Regenerates up to 3 times on violation; returns a safe fallback if all fail.
         Token budget is enforced only at handoff, not on every call."""
+        await self._maybe_compact_history()
+
         # Find last borrower message for context-sensitive checks (rules 6 + 7)
         prior_borrower = ""
         for m in reversed(self._messages):
