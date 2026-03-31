@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import uvicorn
 
 from herrstraussgoodagents.config import get_settings
 from herrstraussgoodagents.workflow.worker import create_worker
+
+logger = logging.getLogger(__name__)
 
 
 async def main() -> None:
@@ -25,11 +28,17 @@ async def main() -> None:
     worker_task = asyncio.create_task(worker.run())
 
     try:
-        # uvicorn.serve() handles SIGINT/SIGTERM itself and exits cleanly
         await server.serve()
     finally:
-        # Gracefully drain in-flight Temporal work, then stop
-        await worker.shutdown()
+        # Unblock any bridge waiters so in-flight activities can finish
+        from herrstraussgoodagents.api.bridge import bridge
+        bridge.cancel_all()
+
+        # Give the worker a bounded window to drain, then force-cancel
+        try:
+            await asyncio.wait_for(worker.shutdown(), timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning("Temporal worker did not shut down within 5 s, cancelling.")
         worker_task.cancel()
         try:
             await worker_task

@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import asyncio
 
-from herrstraussgoodagents.models import AgentOutcome, BorrowerCase, HandoffContext
+from herrstraussgoodagents.models import (
+    AgentOutcome,
+    AgentStage,
+    BorrowerCase,
+    HandoffContext,
+    OutcomeStatus,
+)
 
 
 class MessageBridge:
@@ -85,6 +91,25 @@ class MessageBridge:
         event = self._voice_events.get(borrower_id)
         if event:
             event.set()
+
+    def cancel_all(self) -> None:
+        """Unblock all pending waiters so the process can exit.
+
+        Sets all voice events with a fallback UNRESOLVED outcome and
+        sends __DONE__ to all outbound queues.
+        """
+        for bid in list(self._voice_events):
+            if not self._voice_events[bid].is_set():
+                self._voice_outcomes.setdefault(
+                    bid,
+                    AgentOutcome(
+                        stage=AgentStage.RESOLUTION,
+                        status=OutcomeStatus.UNRESOLVED,
+                    ),
+                )
+                self._voice_events[bid].set()
+        for q in self._outbound.values():
+            q.put_nowait("__DONE__")
 
     def teardown(self, borrower_id: str) -> None:
         self._inbound.pop(borrower_id, None)
