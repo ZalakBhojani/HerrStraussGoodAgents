@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 from herrstraussgoodagents.agents.base import BaseAgent
 from herrstraussgoodagents.config import AgentConfig, get_llm_client
@@ -35,6 +36,25 @@ class AssessmentAgent(BaseAgent):
         self._objections: list[str] = []
         self._tone_notes: list[str] = []
 
+    def build_facts_prompt(self, case: BorrowerCase) -> str:
+        facts = {
+            "borrower_name": case.borrower_name,
+            "debt": case.debt_amount,
+            "months_overdue": case.months_overdue,
+            "creditor": case.original_creditor,
+            "account_last_four": case.account_last_four
+        }
+
+        return f"""
+    Authoritative Facts (JSON - source of truth, non-negotiable):
+    {json.dumps(facts, indent=2)}
+
+    Rules:
+    - Treat the JSON above as ground truth.
+    - Do NOT modify values.
+    - If user disputes, acknowledge and reassert the facts.
+    """.strip()
+
     async def run(
         self,
         inbound: asyncio.Queue[str],
@@ -43,12 +63,16 @@ class AssessmentAgent(BaseAgent):
         system_prompt = self.build_system_prompt()
         self.init_messages(system_prompt)
 
+        facts_prompt = self.build_facts_prompt(self.case)
+        self.init_messages(facts_prompt)
+
         # Send opening message immediately
         opening = self.config.prompt.opening_script.format(
             borrower_first_name=self.case.borrower_name
         )
         self.add_assistant_message(opening)
         await outbound.put(opening)
+        # todo: check what is the size of the first messages here
 
         turns = 0
         while turns < MAX_TURNS:
