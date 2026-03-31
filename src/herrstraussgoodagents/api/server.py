@@ -15,7 +15,7 @@ from herrstraussgoodagents.models import BorrowerCase
 from herrstraussgoodagents.workflow.collections_workflow import CollectionsWorkflow
 
 logger = logging.getLogger(__name__)
-FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
+FRONTEND_DIR = Path(__file__).parent.parent / "frontend" / "dist"
 
 
 @asynccontextmanager

@@ -91,6 +91,16 @@ class VoiceSessionResult:
     outcome: AgentOutcome
     transcript: list[dict[str, str]] = field(default_factory=list)
 
+def build_stt_service(apiKey: str) -> DeepgramSTTService:
+    """Return a DeepgramSTTService configured from AgentConfig."""
+    return DeepgramSTTService(
+        api_key=apiKey,
+        settings=DeepgramSTTService.Settings(
+            model="nova-2",
+            smart_format=True,
+            punctuate=True,
+        ),
+    )
 
 async def run_voice_session(
     agent: ResolutionAgent,
@@ -98,7 +108,7 @@ async def run_voice_session(
     *,
     deepgram_api_key: str = "",
     cartesia_api_key: str = "",
-    cartesia_voice_id: str = "a0e99841-438c-4a64-b679-ae501e7d6091",
+    cartesia_voice_id: str = "e07c00bc-4134-4eae-9ea4-1a55fb45746b",
 ) -> VoiceSessionResult:
     """Assemble and run the full voice pipeline for one borrower session.
 
@@ -114,7 +124,7 @@ async def run_voice_session(
         → FastAPI WebSocket (out)
     """
     transport = build_fastapi_transport(websocket)
-    stt = DeepgramSTTService(api_key=deepgram_api_key)
+    stt = build_stt_service(deepgram_api_key)
     llm_processor = VertexAILLMProcessor(agent=agent, name="resolution-llm")
     hangup_detector = HangupPhraseDetector(name="hangup-detector")
     tts = CartesiaTTSService(api_key=cartesia_api_key, voice_id=cartesia_voice_id)

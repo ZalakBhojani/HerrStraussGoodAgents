@@ -5,7 +5,7 @@ import asyncio
 import uvicorn
 
 from herrstraussgoodagents.config import get_settings
-from herrstraussgoodagents.workflow.worker import run_worker
+from herrstraussgoodagents.workflow.worker import create_worker
 
 
 async def main() -> None:
@@ -21,14 +21,15 @@ async def main() -> None:
     )
     server = uvicorn.Server(config)
 
-    # Start the Temporal worker as a background task
-    worker_task = asyncio.create_task(run_worker())
+    worker = await create_worker()
+    worker_task = asyncio.create_task(worker.run())
 
     try:
         # uvicorn.serve() handles SIGINT/SIGTERM itself and exits cleanly
         await server.serve()
     finally:
-        # Once uvicorn exits (graceful or forced), cancel the worker immediately
+        # Gracefully drain in-flight Temporal work, then stop
+        await worker.shutdown()
         worker_task.cancel()
         try:
             await worker_task

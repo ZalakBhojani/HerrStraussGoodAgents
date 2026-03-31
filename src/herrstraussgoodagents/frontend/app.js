@@ -1,3 +1,6 @@
+import { PipecatClient, RTVIEvent } from '@pipecat-ai/client-js';
+import { WebSocketTransport } from '@pipecat-ai/websocket-transport';
+
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -6,10 +9,7 @@ const borrowerId = (crypto.randomUUID
   : Math.random().toString(36).slice(2) + Date.now().toString(36));
 
 let chatWs = null;
-let voiceWs = null;
-let audioContext = null;
-let micStream = null;
-let scriptProcessor = null;
+let rtviClient = null;
 let isCallActive = false;
 
 const messagesEl     = document.getElementById('messages');
@@ -99,13 +99,6 @@ callBtn.addEventListener('click', async () => {
 });
 
 async function startCall() {
-  try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-  } catch (err) {
-    appendSystemNotice('Microphone access denied. Please allow microphone access and try again.');
-    return;
-  }
-
   voiceBanner.classList.remove('visible');
   callStatus.classList.add('visible');
   callStatusText.textContent = 'Connecting voice call…';
@@ -113,35 +106,43 @@ async function startCall() {
   callBtn.classList.add('active');
   isCallActive = true;
 
-  voiceWs = new WebSocket(`ws://${location.host}/voice/${borrowerId}`);
-  voiceWs.binaryType = 'arraybuffer';
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${proto}//${location.host}/voice/${borrowerId}`;
 
-  voiceWs.onopen = () => {
+  rtviClient = new PipecatClient({
+    transport: new WebSocketTransport({ wsUrl }),
+    enableMic: true,
+    enableCam: false,
+  });
+
+  rtviClient.on(RTVIEvent.Connected, () => {
     callStatusText.textContent = 'Call in progress…';
-    startAudioCapture();
-  };
+  });
 
-  voiceWs.onmessage = (e) => {
-    if (e.data instanceof ArrayBuffer) {
-      playAudio(e.data);
-    }
-  };
-
-  voiceWs.onclose = () => {
+  rtviClient.on(RTVIEvent.Disconnected, () => {
     if (isCallActive) endCall();
-  };
+  });
 
-  voiceWs.onerror = () => {
-    appendSystemNotice('Voice connection error.');
+  rtviClient.on(RTVIEvent.Error, (err) => {
+    appendSystemNotice(`Voice connection error: ${err?.message ?? err}`);
     if (isCallActive) endCall();
-  };
+  });
+
+  try {
+    await rtviClient.initDevices();
+    await rtviClient.connect();
+  } catch (err) {
+    appendSystemNotice('Could not start voice call. Check microphone permissions.');
+    endCall();
+  }
 }
 
 function endCall() {
-  isCallActive = false;
-  stopAudioCapture();
-  if (voiceWs && voiceWs.readyState === WebSocket.OPEN) voiceWs.close();
-  voiceWs = null;
+  isCallActive = false;  // guard against re-entry from Disconnected event
+  if (rtviClient) {
+    rtviClient.disconnect().catch(() => {});
+    rtviClient = null;
+  }
   callStatus.classList.remove('visible');
   callBtn.textContent = 'Start Call';
   callBtn.classList.remove('active');
@@ -160,74 +161,6 @@ function showCallSummary() {
     inputEl.disabled = false;
     sendBtn.disabled = false;
   }
-}
-
-// ---------------------------------------------------------------------------
-// Audio capture (mic → voice WebSocket)
-// ---------------------------------------------------------------------------
-function startAudioCapture() {
-  const sampleRate = 16000;
-  audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate });
-  const source = audioContext.createMediaStreamSource(micStream);
-  // Buffer size: 4096 samples ≈ 256ms at 16 kHz
-  scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
-
-  scriptProcessor.onaudioprocess = (e) => {
-    if (!voiceWs || voiceWs.readyState !== WebSocket.OPEN) return;
-    const float32 = e.inputBuffer.getChannelData(0);
-    const int16 = float32ToInt16(float32);
-    voiceWs.send(int16.buffer);
-  };
-
-  source.connect(scriptProcessor);
-  scriptProcessor.connect(audioContext.destination);
-}
-
-function stopAudioCapture() {
-  if (scriptProcessor) { scriptProcessor.disconnect(); scriptProcessor = null; }
-  if (audioContext) { audioContext.close(); audioContext = null; }
-  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
-}
-
-function float32ToInt16(float32) {
-  const int16 = new Int16Array(float32.length);
-  for (let i = 0; i < float32.length; i++) {
-    const clamped = Math.max(-1, Math.min(1, float32[i]));
-    int16[i] = clamped < 0 ? clamped * 32768 : clamped * 32767;
-  }
-  return int16;
-}
-
-// ---------------------------------------------------------------------------
-// Audio playback (voice WebSocket → speaker)
-// ---------------------------------------------------------------------------
-const playbackQueue = [];
-let isPlaying = false;
-let playbackCtx = null;
-
-function playAudio(arrayBuffer) {
-  if (!playbackCtx) {
-    playbackCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-  }
-  playbackQueue.push(arrayBuffer);
-  if (!isPlaying) drainPlaybackQueue();
-}
-
-function drainPlaybackQueue() {
-  if (playbackQueue.length === 0) { isPlaying = false; return; }
-  isPlaying = true;
-  const buffer = playbackQueue.shift();
-  // Raw 16-bit PCM mono 16 kHz
-  const int16 = new Int16Array(buffer);
-  const float32 = new Float32Array(int16.length);
-  for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
-  const audioBuffer = playbackCtx.createBuffer(1, float32.length, 16000);
-  audioBuffer.copyToChannel(float32, 0);
-  const source = playbackCtx.createBufferSource();
-  source.buffer = audioBuffer;
-  source.connect(playbackCtx.destination);
-  source.onended = drainPlaybackQueue;
-  source.start();
 }
 
 // ---------------------------------------------------------------------------
