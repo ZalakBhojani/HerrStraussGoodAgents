@@ -8,7 +8,7 @@ from vertexai.generative_models import (
     Part,
 )
 
-from .base import LLMClient, Message
+from .base import LLMClient, LLMResponse, Message, compute_cost
 
 
 class VertexAIClient(LLMClient):
@@ -38,7 +38,7 @@ class VertexAIClient(LLMClient):
         model: str,
         temperature: float,
         max_tokens: int,
-    ) -> str:
+    ) -> LLMResponse:
         system_instruction, contents = self._build_contents(messages)
         gemini = GenerativeModel(
             model_name=model,
@@ -51,7 +51,16 @@ class VertexAIClient(LLMClient):
                 max_output_tokens=max_tokens,
             ),
         )
-        return response.text
+        usage = response.usage_metadata
+        input_tokens = usage.prompt_token_count or 0
+        output_tokens = usage.candidates_token_count or 0
+        return LLMResponse(
+            text=response.text,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            model=model,
+            cost_usd=compute_cost(model, input_tokens, output_tokens),
+        )
 
     async def count_tokens(self, messages: list[Message], model: str) -> int:
         system_instruction, contents = self._build_contents(messages)

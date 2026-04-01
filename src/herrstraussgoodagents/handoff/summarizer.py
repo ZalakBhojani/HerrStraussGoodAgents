@@ -5,7 +5,7 @@ import logging
 
 from herrstraussgoodagents.config import LLMConfig, get_llm_client, get_settings
 from herrstraussgoodagents.handoff.context import enforce_token_budget
-from herrstraussgoodagents.llm import LLMClient, Message
+from herrstraussgoodagents.llm import LLMClient, Message, get_cost_tracker
 from herrstraussgoodagents.models import AgentStage, HandoffContext, ResolutionPath
 
 logger = logging.getLogger(__name__)
@@ -69,14 +69,15 @@ class HandoffSummarizer:
             {"role": "user", "content": f"Transcript:\n{transcript}"},
         ]
 
-        raw = await self.client.complete(
+        llm_response = await self.client.complete(
             summary_messages,
             model=self.config.model,
             temperature=0.0,
             max_tokens=512,
         )
+        get_cost_tracker().record(llm_response, "handoff:summarization")
 
-        ctx = _parse_llm_response(raw, source_stage, debt_amount, months_overdue)
+        ctx = _parse_llm_response(llm_response.text, source_stage, debt_amount, months_overdue)
 
         # Enforce 500-token budget; re-summarize if needed
         settings = get_settings()

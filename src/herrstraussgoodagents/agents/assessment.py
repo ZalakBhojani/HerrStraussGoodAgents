@@ -13,6 +13,7 @@ from herrstraussgoodagents.models import (
     BorrowerCase,
     OutcomeStatus,
     ResolutionPath,
+    TurnSource,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,24 +40,25 @@ class AssessmentAgent(BaseAgent):
         self._objections: list[str] = []
         self._tone_notes: list[str] = []
 
-    def build_facts_prompt(self, case: BorrowerCase) -> str:
+    def build_system_prompt(self) -> str:
+        base = super().build_system_prompt()
         facts = {
-            "borrower_name": case.borrower_name,
-            "debt": case.debt_amount,
-            "months_overdue": case.months_overdue,
-            "creditor": case.original_creditor,
-            "account_last_four": case.account_last_four
+            "borrower_name": self.case.borrower_name,
+            "debt": self.case.debt_amount,
+            "months_overdue": self.case.months_overdue,
+            "creditor": self.case.original_creditor,
+            "account_last_four": self.case.account_last_four,
         }
-
-        return f"""
-    Authoritative Facts (JSON - source of truth, non-negotiable):
-    {json.dumps(facts, indent=2)}
-
-    Rules:
-    - Treat the JSON above as ground truth.
-    - Do NOT modify values.
-    - If user disputes, acknowledge and reassert the facts.
-    """.strip()
+        facts_block = (
+            "\n\n--- AUTHORITATIVE FACTS ---\n"
+            f"{json.dumps(facts, indent=2)}\n\n"
+            "Rules:\n"
+            "- Treat the JSON above as ground truth.\n"
+            "- Do NOT modify values.\n"
+            "- If user disputes, acknowledge and reassert the facts.\n"
+            "--- END FACTS ---"
+        )
+        return base + facts_block
 
     async def run(
         self,
@@ -66,9 +68,6 @@ class AssessmentAgent(BaseAgent):
         settings = get_settings()
         system_prompt = self.build_system_prompt()
         self.init_messages(system_prompt)
-
-        facts_prompt = self.build_facts_prompt(self.case)
-        self.add_system_message(facts_prompt)
 
         init_tokens = await self.client.count_tokens(self._messages, self.config.llm.model)
         if init_tokens > settings.main_context_tokens:
@@ -84,7 +83,7 @@ class AssessmentAgent(BaseAgent):
         opening = self.config.prompt.opening_script.format(
             borrower_first_name=self.case.borrower_name
         )
-        self.add_assistant_message(opening)
+        self.add_assistant_message(opening, source=TurnSource.DETERMINISTIC)
         await outbound.put(opening)
 
         turns = 0
@@ -99,6 +98,7 @@ class AssessmentAgent(BaseAgent):
                 return AgentOutcome(
                     stage=AgentStage.ASSESSMENT,
                     status=OutcomeStatus.UNRESOLVED,
+                    transcript=self.transcript,
                     turns_taken=turns,
                 )
 
@@ -106,7 +106,7 @@ class AssessmentAgent(BaseAgent):
             msg_lower = borrower_msg.lower()
 
             # Cease-and-desist detection
-            # todo/discuss: imo we should just flag the account in real scenarios, but the mermaid diagram in the problem says to 
+            # todo/discuss: imo we should just flag the account in real scenarios, but the mermaid diagram in the problem says to
             # move to the voice agent
             if any(kw in msg_lower for kw in _CEASE_KEYWORDS):
                 farewell = (
@@ -114,11 +114,14 @@ class AssessmentAgent(BaseAgent):
                     "I will note that you have requested no further contact. "
                     "Thank you. Goodbye."
                 )
+                self.add_user_message(borrower_msg)
+                self.add_assistant_message(farewell, source=TurnSource.DETERMINISTIC)
                 await outbound.put(farewell)
                 await outbound.put("__DONE__")
                 return AgentOutcome(
                     stage=AgentStage.ASSESSMENT,
                     status=OutcomeStatus.CEASE_REQUESTED,
+                    transcript=self.transcript,
                     turns_taken=turns,
                 )
 
@@ -136,11 +139,14 @@ class AssessmentAgent(BaseAgent):
                             "For the security of your account, I cannot continue. "
                             "Please call us back with your account information. Goodbye."
                         )
+                        self.add_user_message(borrower_msg)
+                        self.add_assistant_message(farewell, source=TurnSource.DETERMINISTIC)
                         await outbound.put(farewell)
                         await outbound.put("__DONE__")
                         return AgentOutcome(
                             stage=AgentStage.ASSESSMENT,
                             status=OutcomeStatus.IDENTITY_FAILED,
+                            transcript=self.transcript,
                             turns_taken=turns,
                         )
 
@@ -155,12 +161,13 @@ class AssessmentAgent(BaseAgent):
                     self._resolution_path = ResolutionPath.PAYMENT_PLAN
 
             self.add_user_message(borrower_msg)
-            response = await self.generate()
+            response = await self.generate(cost_tag="agent:assessment")
             self.add_assistant_message(response)
             await outbound.put(response)
 
-            # Complete assessment once identity is confirmed and we have enough turns
-            if self._identity_verified and turns >= 4:
+            # Complete assessment when we have the data we need:
+            # identity verified + resolution path detected + at least 2 turns for context
+            if self._identity_verified and self._resolution_path is not None and turns >= 2:
                 break
 
         summarizer = HandoffSummarizer.from_config(self.config.llm)
@@ -184,5 +191,6 @@ class AssessmentAgent(BaseAgent):
             status=OutcomeStatus.ESCALATED,
             resolution_path=self._resolution_path,
             handoff_context=handoff,
+            transcript=self.transcript,
             turns_taken=turns,
         )

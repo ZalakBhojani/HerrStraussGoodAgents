@@ -14,6 +14,7 @@ from herrstraussgoodagents.models import (
     HandoffContext,
     OutcomeStatus,
     ResolutionPath,
+    TurnSource,
 )
 
 logger = logging.getLogger(__name__)
@@ -113,7 +114,7 @@ class ResolutionAgent(BaseAgent):
         )
         offer_line = self._build_offer_line()
         full_opening = f"{opening} {offer_line}"
-        self.add_assistant_message(full_opening)
+        self.add_assistant_message(full_opening, source=TurnSource.DETERMINISTIC)
         return full_opening
 
     # ------------------------------------------------------------------
@@ -133,35 +134,35 @@ class ResolutionAgent(BaseAgent):
 
         # --- Hard-exit conditions (no LLM needed) ---
         if any(kw in msg_lower for kw in _CEASE_KEYWORDS):
-            return TurnResult(
-                response=(
-                    "I understand and will honor your request. "
-                    "I will note the cease-communication request on your account. Goodbye."
-                ),
-                signal=SessionSignal.END_CEASE,
+            response = (
+                "I understand and will honor your request. "
+                "I will note the cease-communication request on your account. Goodbye."
             )
+            self.add_user_message(borrower_text)
+            self.add_assistant_message(response, source=TurnSource.DETERMINISTIC)
+            return TurnResult(response=response, signal=SessionSignal.END_CEASE)
 
         if any(kw in msg_lower for kw in _HANGUP_KEYWORDS):
-            return TurnResult(
-                response="Thank you for your time. Goodbye.",
-                signal=SessionSignal.END_HUNG_UP,
-            )
+            response = "Thank you for your time. Goodbye."
+            self.add_user_message(borrower_text)
+            self.add_assistant_message(response, source=TurnSource.DETERMINISTIC)
+            return TurnResult(response=response, signal=SessionSignal.END_HUNG_UP)
 
         if any(kw in msg_lower for kw in _CALLBACK_KEYWORDS):
-            return TurnResult(
-                response=(
-                    "Understood. I'll note a callback request on your account. "
-                    "Please be aware this offer is time-sensitive. Goodbye."
-                ),
-                signal=SessionSignal.END_CALLBACK,
+            response = (
+                "Understood. I'll note a callback request on your account. "
+                "Please be aware this offer is time-sensitive. Goodbye."
             )
+            self.add_user_message(borrower_text)
+            self.add_assistant_message(response, source=TurnSource.DETERMINISTIC)
+            return TurnResult(response=response, signal=SessionSignal.END_CALLBACK)
 
         # --- Agreement detection ---
         if any(kw in msg_lower for kw in _AGREEMENT_KEYWORDS):
             self._record_agreement()
             response = self._build_confirmation()
             self.add_user_message(borrower_text)
-            self.add_assistant_message(response)
+            self.add_assistant_message(response, source=TurnSource.DETERMINISTIC)
             return TurnResult(response=response, signal=SessionSignal.END_RESOLVED)
 
         # --- Objection handling ---
@@ -173,7 +174,7 @@ class ResolutionAgent(BaseAgent):
 
         # --- Standard LLM turn ---
         self.add_user_message(borrower_text)
-        response = await self.generate()
+        response = await self.generate(cost_tag="agent:resolution")
         self.add_assistant_message(response)
         return TurnResult(response=response, signal=SessionSignal.CONTINUE)
 
@@ -206,6 +207,7 @@ class ResolutionAgent(BaseAgent):
                 tone_summary=self.handoff.tone_summary,
                 source_stage=AgentStage.RESOLUTION,
             ),
+            transcript=self.transcript,
             turns_taken=self._turns,
         )
 

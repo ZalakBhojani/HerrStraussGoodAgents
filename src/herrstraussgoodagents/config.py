@@ -61,6 +61,7 @@ class MetricConfig(BaseModel):
 class EvaluationRubric(BaseModel):
     version: str
     metrics: list[MetricConfig]
+    system_metrics: list[MetricConfig] = Field(default_factory=list)
     forbidden_phrases: list[str] = Field(default_factory=list)
     compliance_auto_cap: float = 2.0
 

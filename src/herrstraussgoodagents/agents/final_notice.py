@@ -13,6 +13,7 @@ from herrstraussgoodagents.models import (
     HandoffContext,
     OutcomeStatus,
     ResolutionPath,
+    TurnSource,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,7 +117,7 @@ class FinalNoticeAgent(BaseAgent):
         )
         offer_line = self._build_offer_line()
         full_opening = f"{opening}\n\n{offer_line}"
-        self.add_assistant_message(full_opening)
+        self.add_assistant_message(full_opening, source=TurnSource.DETERMINISTIC)
         await outbound.put(full_opening)
 
         turns = 0
@@ -143,6 +144,8 @@ class FinalNoticeAgent(BaseAgent):
                     "Your cease-communication request has been noted and will be honored. "
                     "Goodbye."
                 )
+                self.add_user_message(borrower_msg)
+                self.add_assistant_message(farewell, source=TurnSource.DETERMINISTIC)
                 await outbound.put(farewell)
                 await outbound.put("__DONE__")
                 return self._make_outcome(OutcomeStatus.CEASE_REQUESTED, turns)
@@ -152,7 +155,7 @@ class FinalNoticeAgent(BaseAgent):
                 self._committed = True
                 confirmation = self._build_confirmation()
                 self.add_user_message(borrower_msg)
-                self.add_assistant_message(confirmation)
+                self.add_assistant_message(confirmation, source=TurnSource.DETERMINISTIC)
                 await outbound.put(confirmation)
                 await outbound.put("__DONE__")
                 return self._make_outcome(OutcomeStatus.RESOLVED, turns)
@@ -162,13 +165,13 @@ class FinalNoticeAgent(BaseAgent):
                 self._refused = True
                 refusal_acknowledgment = self._build_refusal_acknowledgment()
                 self.add_user_message(borrower_msg)
-                self.add_assistant_message(refusal_acknowledgment)
+                self.add_assistant_message(refusal_acknowledgment, source=TurnSource.DETERMINISTIC)
                 await outbound.put(refusal_acknowledgment)
                 await outbound.put("__DONE__")
                 return self._make_outcome(OutcomeStatus.UNRESOLVED, turns)
 
             self.add_user_message(borrower_msg)
-            response = await self.generate()
+            response = await self.generate(cost_tag="agent:final_notice")
             self.add_assistant_message(response)
             await outbound.put(response)
 
@@ -221,5 +224,6 @@ class FinalNoticeAgent(BaseAgent):
                 tone_summary=self.handoff.tone_summary,
                 source_stage=AgentStage.FINAL_NOTICE,
             ),
+            transcript=self.transcript,
             turns_taken=turns,
         )

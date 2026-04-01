@@ -3,7 +3,7 @@ from __future__ import annotations
 import tiktoken
 from anthropic import AsyncAnthropic
 
-from .base import LLMClient, Message
+from .base import LLMClient, LLMResponse, Message, compute_cost
 
 
 class AnthropicClient(LLMClient):
@@ -28,7 +28,7 @@ class AnthropicClient(LLMClient):
         model: str,
         temperature: float,
         max_tokens: int,
-    ) -> str:
+    ) -> LLMResponse:
         system, turns = self._split_messages(messages)
         kwargs: dict = dict(
             model=model,
@@ -39,7 +39,15 @@ class AnthropicClient(LLMClient):
         if system:
             kwargs["system"] = system
         response = await self._client.messages.create(**kwargs)
-        return response.content[0].text
+        input_tokens = response.usage.input_tokens
+        output_tokens = response.usage.output_tokens
+        return LLMResponse(
+            text=response.content[0].text,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            model=model,
+            cost_usd=compute_cost(model, input_tokens, output_tokens),
+        )
 
     async def count_tokens(self, messages: list[Message], model: str) -> int:
         encoding = tiktoken.get_encoding("cl100k_base")

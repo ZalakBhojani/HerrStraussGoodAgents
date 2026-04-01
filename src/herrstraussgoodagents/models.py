@@ -46,9 +46,16 @@ class BorrowerCase(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class TurnSource(str, Enum):
+    LLM = "llm"
+    DETERMINISTIC = "deterministic"
+    BORROWER = "borrower"
+
+
 class ConversationMessage(BaseModel):
     role: str  # "system", "user", "assistant"
     content: str
+    source: TurnSource = TurnSource.LLM
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     token_count: int | None = None
 
@@ -82,6 +89,7 @@ class AgentOutcome(BaseModel):
     settlement_amount: float | None = None
     payment_plan_months: int | None = None
     handoff_context: HandoffContext | None = None
+    transcript: list[ConversationMessage] = Field(default_factory=list)
     turns_taken: int = 0
     tokens_used: int = 0
 
