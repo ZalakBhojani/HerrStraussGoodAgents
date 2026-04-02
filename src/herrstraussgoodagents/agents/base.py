@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from herrstraussgoodagents.compliance.rules import ComplianceResult, check_all_with_context
 from herrstraussgoodagents.config import AgentConfig, get_settings
 from herrstraussgoodagents.llm import LLMClient, Message, get_cost_tracker
 from herrstraussgoodagents.models import ConversationMessage, TurnSource
+
+if TYPE_CHECKING:
+    from pipecat.processors.aggregators.llm_context import LLMContext
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +25,16 @@ class BaseAgent:
         self.config = config
         self._messages: list[Message] = []
         self._transcript: list[ConversationMessage] = []
+        self._ext_context: LLMContext | None = None
+
+    def set_llm_context(self, context: LLMContext) -> None:
+        """Wire a Pipecat LLMContext as the backing store for conversation history.
+
+        When set, ``add_user_message`` / ``add_assistant_message`` will skip
+        updating ``_messages`` (the aggregators handle that), and ``generate``
+        will read messages from the context instead of ``_messages``.
+        """
+        self._ext_context = context
 
     # ------------------------------------------------------------------
     # Prompt assembly
@@ -44,25 +58,34 @@ class BaseAgent:
     # ------------------------------------------------------------------
 
     def init_messages(self, system_prompt: str) -> None:
-        self._messages = [{"role": "system", "content": system_prompt}]
+        if self._ext_context is not None:
+            self._ext_context.set_messages([{"role": "system", "content": system_prompt}])
+        else:
+            self._messages = [{"role": "system", "content": system_prompt}]
         self._transcript = []
 
     def add_system_message(self, system_prompt: str) -> None:
         self._messages.append({"role": "system", "content": system_prompt})
 
     def add_user_message(self, content: str) -> None:
-        self._messages.append({"role": "user", "content": content})
         self._transcript.append(
             ConversationMessage(role="user", content=content, source=TurnSource.BORROWER)
         )
+        # When using external context, the LLMUserAggregator has already added
+        # this message to LLMContext — skip to avoid duplicates.
+        if self._ext_context is None:
+            self._messages.append({"role": "user", "content": content})
 
     def add_assistant_message(
         self, content: str, source: TurnSource = TurnSource.LLM
     ) -> None:
-        self._messages.append({"role": "assistant", "content": content})
         self._transcript.append(
             ConversationMessage(role="assistant", content=content, source=source)
         )
+        # When using external context, the LLMAssistantAggregator captures the
+        # response from the emitted frames — skip to avoid duplicates.
+        if self._ext_context is None:
+            self._messages.append({"role": "assistant", "content": content})
 
     @property
     def transcript(self) -> list[ConversationMessage]:
@@ -72,6 +95,7 @@ class BaseAgent:
     # History compaction
     # ------------------------------------------------------------------
 
+    # This is currently used by text agents as we are managing their own context
     async def _maybe_compact_history(self) -> None:
         """Slide the message window when total tokens exceed the main context budget.
 
@@ -112,14 +136,19 @@ class BaseAgent:
     async def generate(self, cost_tag: str = "") -> str:
         """Call LLM and compliance-check the response.
         Regenerates up to 3 times on violation; returns a safe fallback if all fail.
-        Token budget is enforced only at handoff, not on every call."""
-        await self._maybe_compact_history()
+        When an external LLMContext is wired in (voice path), it is used as-is;
+        otherwise the internal _messages list is compacted first."""
+        if self._ext_context is not None:
+            messages = self._ext_context.get_messages()
+        else:
+            await self._maybe_compact_history()
+            messages = self._messages
 
         # Find last borrower message for context-sensitive checks (rules 6 + 7)
         prior_borrower = ""
-        for m in reversed(self._messages):
-            if m["role"] == "user":
-                prior_borrower = m["content"]
+        for m in reversed(messages):
+            if m.get("role") == "user":
+                prior_borrower = m.get("content", "")
                 break
 
         tracker = get_cost_tracker()
@@ -127,7 +156,7 @@ class BaseAgent:
 
         for attempt in range(_MAX_REGENERATE_ATTEMPTS):
             llm_response = await self.client.complete(
-                self._messages,
+                messages,
                 model=self.config.llm.model,
                 temperature=self.config.llm.temperature,
                 max_tokens=self.config.llm.max_tokens,
@@ -140,12 +169,18 @@ class BaseAgent:
 
             # Inject a corrective hint and retry
             if attempt < _MAX_REGENERATE_ATTEMPTS - 1:
-                self._messages.append({
+                correction = {
                     "role": "user",
                     "content": (
                         f"[SYSTEM CORRECTION: Your last response violated a compliance rule "
                         f"({result.violation}). Rewrite it without this violation.]"
                     ),
-                })
+                }
+                if self._ext_context is not None:
+                    self._ext_context.add_message(correction)
+                    messages = self._ext_context.get_messages()
+                else:
+                    self._messages.append(correction)
+                    messages = self._messages
 
         return _COMPLIANCE_FALLBACK

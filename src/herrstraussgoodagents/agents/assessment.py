@@ -18,7 +18,7 @@ from herrstraussgoodagents.models import (
 
 logger = logging.getLogger(__name__)
 
-MAX_TURNS = 20
+MAX_TURNS = 5
 _BORROWER_TIMEOUT_SECONDS = 300  # 5 min idle timeout
 
 # Keywords detected in borrower messages to infer state
