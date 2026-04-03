@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from pipecat.frames.frames import (
     EndFrame,
+    EndTaskFrame,
     LLMContextFrame,
     LLMContextSummaryRequestFrame,
     LLMContextSummaryResultFrame,
@@ -97,6 +98,8 @@ class VertexAILLMProcessor(FrameProcessor):
             if turn_result.signal != SessionSignal.CONTINUE:
                 self.outcome = self.agent.build_outcome(turn_result.signal)
                 await self.push_frame(EndFrame())
+                # possible race condition here
+                await self.push_frame(EndTaskFrame("Bot came up with the hangup_phase"), FrameDirection.UPSTREAM)
             return
 
         # --- Context summarization request from LLMAssistantAggregator (upstream) ---

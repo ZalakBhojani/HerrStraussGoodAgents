@@ -89,9 +89,9 @@ class AgentOutcome(BaseModel):
     settlement_amount: float | None = None
     payment_plan_months: int | None = None
     handoff_context: HandoffContext | None = None
-    transcript: list[ConversationMessage] = Field(default_factory=list)
+    # transcript: list[ConversationMessage] = Field(default_factory=list)
     turns_taken: int = 0
-    tokens_used: int = 0
+    # tokens_used: int = 0
 
 
 class ConversationRecord(BaseModel):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from pipecat.frames.frames import EndFrame, TextFrame
+from pipecat.frames.frames import BotStoppedSpeakingFrame, EndTaskFrame, TextFrame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 logger = logging.getLogger(__name__)
@@ -28,20 +28,26 @@ class HangupPhraseDetector(FrameProcessor):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
+        self._phrases = [p.lower() for p in _HANGUP_PHRASES]
         self._triggered = False
 
-    async def process_frame(self, frame, direction: FrameDirection) -> None:
+    async def process_frame(self, frame, direction):
         await super().process_frame(frame, direction)
 
+        # Step 1: detect terminal phrase in LLM output, pass it through for TTS
         if isinstance(frame, TextFrame) and not self._triggered:
-            text_lower = frame.text.lower()
-            if any(phrase in text_lower for phrase in _HANGUP_PHRASES):
+            if any(phrase in frame.text.lower() for phrase in self._phrases):
                 self._triggered = True
-                logger.info("HangupPhraseDetector: hangup phrase found, scheduling EndFrame")
-                # Pass the text frame through so TTS speaks it first
-                await self.push_frame(frame, direction)
-                # Then end the pipeline
-                await self.push_frame(EndFrame())
-                return
+                logger.info(
+                    f"[HangupDetector] Terminal phrase detected: {frame.text!r} — "
+                    "will close after bot finishes speaking"
+                )
+
+        # Step 2: once TTS has fully played, close the pipeline
+        elif isinstance(frame, BotStoppedSpeakingFrame) and self._triggered:
+            logger.info("[HangupDetector] Bot finished speaking — sending EndFrame")
+            await self.push_frame(frame, direction)
+            await self.push_frame(EndTaskFrame("Bot came up with the hangup_phase"), FrameDirection.UPSTREAM)
+            return
 
         await self.push_frame(frame, direction)

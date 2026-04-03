@@ -272,6 +272,7 @@ class ComplianceAuditor:
                 i + 1, len(records), record.session_id, record.stage.value,
             )
             try:
+                # fix, this is broken
                 result = await self.audit_conversation(
                     messages=record.messages,
                     session_id=record.session_id,

@@ -152,7 +152,7 @@ async def simulate_single_agent(
         stage=stage,
         agent_version=agent_version,
         persona_id=borrower.persona.id,
-        messages=outcome.transcript,
+        # messages=outcome.transcript, # (todo): transcript does not contain the conversation
         outcome=outcome,
         started_at=started_at,
         ended_at=datetime.utcnow(),
